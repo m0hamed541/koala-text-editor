@@ -17,6 +17,11 @@ typedef enum editorMode
     INSERT_MODE
 } editorMode;
 
+typedef enum prompt{
+    SAVE, 
+    QUIT
+} prompt;
+
 typedef struct Editor
 {
     editorMode mode;

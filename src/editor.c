@@ -30,6 +30,21 @@ void enable_raw_mode(Editor *E)
 	tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
 
+void enable_prompt_mode(Editor *E)
+{
+	E->mode = PROMPT_MODE;
+	char *com = malloc(2);
+	if (com)
+	{
+		com[0] = ':';
+		com[1] = '\0';
+		free(E->command_line.chars);
+
+		E->command_line.chars = com;
+		E->command_line.size = 1;
+	}
+}
+
 char editor_read_key(void)
 {
 	char c;
@@ -149,23 +164,23 @@ void read_file(Editor *E, const char *filename)
 	fclose(file);
 }
 
+void editor_open(Editor *E)
+{
+	if (E->file_info.chars != NULL && strcmp(E->file_info.chars, "[No Name]") != 0)
+	{
+		read_file(E, E->file_info.chars);
+	}
 
-
-void editor_open(Editor *E) {
-    if (E->file_info.chars != NULL && strcmp(E->file_info.chars, "[No Name]") != 0) {
-        read_file(E, E->file_info.chars);
-    }
-    
-    if (E->numrows == 0) {
-        E->row = malloc(sizeof(erow));
-        E->row->chars = malloc(1);
-        E->row->chars[0] = '\0';
-        E->row->size = 0;
-        E->row->next = NULL;
-        E->numrows = 1;
-    }
+	if (E->numrows == 0)
+	{
+		E->row = malloc(sizeof(erow));
+		E->row->chars = malloc(1);
+		E->row->chars[0] = '\0';
+		E->row->size = 0;
+		E->row->next = NULL;
+		E->numrows = 1;
+	}
 }
-
 
 void editor_move_cursor(Editor *E, char key)
 {
@@ -215,7 +230,7 @@ void editor_process_keypress(Editor *E)
 			exit(0);
 		}
 		else if (c == ':')
-			E->mode = PROMPT_MODE;
+			enable_prompt_mode(E);
 		else if (c == 'i')
 			E->mode = INSERT_MODE;
 		else
@@ -278,9 +293,58 @@ void editor_process_keypress(Editor *E)
 			E->cx++;
 		}
 		break;
+
 	case PROMPT_MODE:
+		if (isprint(c))
+		{
+			char *new_chars = realloc(E->command_line.chars, E->command_line.size + 2);
+			if (new_chars)
+			{
+				E->command_line.chars = new_chars;
+				E->command_line.chars[E->command_line.size] = c;
+				E->command_line.size++;
+				E->command_line.chars[E->command_line.size] = '\0';
+			}
+		}
+		else if (c == '\r' || c == '\n') // Enter
+		{
+			char *reset_chars = realloc(E->command_line.chars, 1);
+			if (reset_chars)
+			{
+				E->command_line.chars = reset_chars;
+				E->command_line.chars[0] = '\0';
+				E->command_line.size = 0;
+			}
+
+			E->mode = RAW_MODE;
+		}
+		else if (c == 127) // Backspace
+		{
+			if (E->command_line.size > 0)
+			{
+				E->command_line.size--;
+				E->command_line.chars[E->command_line.size] = '\0';
+			}
+		}
+		break;
+
 		break;
 	}
+}
+
+void draw_prompt_line(Editor *E)
+{
+	const char *mode_str = (E->mode == RAW_MODE) ? "[RAW]" : (E->mode == INSERT_MODE) ? "[INSERT]"
+																					  : "[PROMPT]";
+	int mode_len = strlen(mode_str);
+	int padding = E->screencols - E->command_line.size - mode_len;
+	write(STDOUT_FILENO, E->command_line.chars, E->command_line.size);
+	while (padding > 0)
+	{
+		write(STDOUT_FILENO, " ", 1);
+		padding--;
+	}
+	write(STDOUT_FILENO, mode_str, mode_len);
 }
 
 void editor_draw_rows(Editor *E)
@@ -302,11 +366,7 @@ void editor_draw_rows(Editor *E)
 	}
 	write(STDOUT_FILENO, E->file_info.chars, E->file_info.size);
 	write(STDOUT_FILENO, "\r\n\x1b[K", 5);
-
-	const char *mode_str = (E->mode == RAW_MODE) ? "[RAW]" : (E->mode == INSERT_MODE) ? "[INSERT]"
-																					  : "[PROMPT]";
-	write(STDOUT_FILENO, E->command_line.chars, E->command_line.size);
-	write(STDOUT_FILENO, mode_str, strlen(mode_str));
+	draw_prompt_line(E);
 }
 
 void editor_refresh_screen(Editor *E)
@@ -329,3 +389,5 @@ void editor_init(Editor *E)
 	if (get_window_size(&E->screenrows, &E->screencols) == -1)
 		exit(1);
 }
+
+// Commands
