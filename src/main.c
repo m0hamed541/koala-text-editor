@@ -1,16 +1,23 @@
+#define _DEFAULT_SOURCE // support POSIX standard function (ex. strdup, getline)
 #include <stdlib.h>
+#include <string.h>
 #include "editor.h"
 
 int main(int argc, char **argv)
 {
-    (void)argc;
-    (void)argv;
 
     Editor editor;
 
-    editor.file_info.chars = malloc(1);
-    editor.file_info.chars[0] = '\0';
-    editor.file_info.size = 0;
+    if (argc > 1)
+    {
+        editor.file_info.chars = strdup(argv[1]);
+        editor.file_info.size = strlen(argv[1]);
+    }
+    else
+    {
+        editor.file_info.chars = strdup("[No Name]");
+        editor.file_info.size = strlen(editor.file_info.chars);
+    }
     editor.file_info.next = NULL;
 
     editor.command_line.chars = malloc(1);

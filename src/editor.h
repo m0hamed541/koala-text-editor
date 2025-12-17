@@ -26,8 +26,8 @@ typedef struct Editor
     int numrows;
     erow *row;
     struct termios orig_termios;
-    erow file_info;    // Moved from global
-    erow command_line; // Moved from global
+    erow file_info;
+    erow command_line;
 } Editor;
 
 // Core Lifecycle
@@ -45,4 +45,7 @@ int get_window_size(int *rows, int *cols);
 void editor_insert_char(Editor *E, char c, int line, int pos);
 void editor_insert_newline(Editor *E, int line, int pos);
 
+
+// Files handeling
+void read_file(Editor *E, const char* filename);
 #endif

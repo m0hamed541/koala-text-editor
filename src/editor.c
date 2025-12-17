@@ -1,3 +1,4 @@
+#define _DEFAULT_SOURCE // support POSIX standard function (ex. strdup, getline)
 #include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -20,9 +21,6 @@ void enable_raw_mode(Editor *E)
 {
 	if (tcgetattr(STDIN_FILENO, &E->orig_termios) == -1)
 		exit(1);
-	// Note: atexit requires a global/static wrapper,
-	// but for this structure, we call it manually in main.
-
 	struct termios raw = E->orig_termios;
 	raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
 	raw.c_oflag &= ~(OPOST);
@@ -107,15 +105,67 @@ void editor_insert_newline(Editor *E, int line, int pos)
 	E->numrows++;
 }
 
-void editor_open(Editor *E)
+void read_file(Editor *E, const char *filename)
 {
-	E->row = malloc(sizeof(erow));
-	E->row->chars = malloc(1);
-	E->row->chars[0] = '\0';
-	E->row->size = 0;
-	E->row->next = NULL;
-	E->numrows = 1;
+	FILE *file = fopen(filename, "r");
+	if (file == NULL)
+	{
+		perror("fopen");
+		exit(EXIT_FAILURE);
+	}
+
+	char *line = NULL;
+	size_t linecap = 0;
+	ssize_t linelen;
+	erow *tail = NULL;
+
+	while ((linelen = getline(&line, &linecap, file)) != -1)
+	{
+		while (linelen > 0 && (line[linelen - 1] == '\n' || line[linelen - 1] == '\r'))
+		{
+			linelen--;
+		}
+
+		erow *row = malloc(sizeof(erow));
+		row->size = linelen;
+		row->chars = malloc(linelen + 1);
+		memcpy(row->chars, line, linelen);
+		row->chars[linelen] = '\0';
+		row->next = NULL;
+
+		if (E->row == NULL)
+		{
+			E->row = row;
+		}
+		else
+		{
+			tail->next = row;
+		}
+		tail = row;
+		E->numrows++;
+	}
+
+	free(line);
+	fclose(file);
 }
+
+
+
+void editor_open(Editor *E) {
+    if (E->file_info.chars != NULL && strcmp(E->file_info.chars, "[No Name]") != 0) {
+        read_file(E, E->file_info.chars);
+    }
+    
+    if (E->numrows == 0) {
+        E->row = malloc(sizeof(erow));
+        E->row->chars = malloc(1);
+        E->row->chars[0] = '\0';
+        E->row->size = 0;
+        E->row->next = NULL;
+        E->numrows = 1;
+    }
+}
+
 
 void editor_move_cursor(Editor *E, char key)
 {
