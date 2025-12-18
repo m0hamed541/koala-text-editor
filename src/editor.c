@@ -386,6 +386,8 @@ void editor_init(Editor *E)
 	E->row = NULL;
 	E->numrows = 0;
 	E->mode = RAW_MODE;
+
+	pthread_mutex_init(&E->lock, NULL);
 	if (get_window_size(&E->screenrows, &E->screencols) == -1)
 		exit(1);
 }

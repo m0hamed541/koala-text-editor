@@ -2,6 +2,7 @@
 #define EDITOR_H
 
 #include <termios.h>
+#include <pthread.h>
 
 typedef struct erow_node
 {
@@ -33,6 +34,8 @@ typedef struct Editor
     struct termios orig_termios;
     erow file_info;
     erow command_line;
+
+    pthread_mutex_t lock;
 } Editor;
 
 // Core Lifecycle

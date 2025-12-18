@@ -1,0 +1,11 @@
+Hello, Koala!
+
+Koala is my first text editor.
+
+Author: Mohamed Agougil  
+GitHub: https://github.com/m0hamed541/koala-text-editor
+
+Note:
+Work, learn, and have fun with no regrets.
+This is life—and in the end, we all die.
+
