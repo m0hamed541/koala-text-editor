@@ -36,6 +36,10 @@ KOALA/
 └── Makefile (full version)
 ```
 
+## Screenshots
+
+![screenshot](./docs/images/screenshot.png)
+
 ___
 **Note:** Koala is a side project for exploring low-level Linux systems programming, socket networking, and distributed systems concepts.
 

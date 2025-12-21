@@ -1,89 +1,77 @@
+
+
 #include "network.h"
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
+#include <strings.h>
 #include <arpa/inet.h>
-#include <pthread.h>
-#include "network.h"
+#include <errno.h>
 
-#define BUFFER_SIZE 1024
-
-static int global_sock = -1;
-static pthread_t recv_thread;
-static message_handler_t on_message_received = NULL;
-
-static void *receive_loop(void *arg)
+Network init_host(int port)
 {
-    (void)arg;
-    char buffer[BUFFER_SIZE];
-    int read_size;
+    Network netmanager;
 
-    while (global_sock != -1 && (read_size = recv(global_sock, buffer, BUFFER_SIZE - 1, 0)) > 0)
+    netmanager.socketfd = socket(AF_INET, SOCK_STREAM, 0);
+
+    if (netmanager.socketfd == -1)
     {
-        buffer[read_size] = '\0';
-        if (on_message_received)
-        {
-            on_message_received(buffer);
-        }
+        perror("Socket creation failed");
+        exit(1);
     }
-    return NULL;
-}
 
-int p2p_start_listener(int port, message_handler_t callback)
-{
-    int listen_sock;
-    struct sockaddr_in addr;
-    socklen_t addr_size = sizeof(addr);
-
-    on_message_received = callback;
-    listen_sock = socket(AF_INET, SOCK_STREAM, 0);
-    addr.sin_family = AF_INET;
-    addr.sin_addr.s_addr = INADDR_ANY;
-    addr.sin_port = htons(port);
-
-    if (bind(listen_sock, (struct sockaddr *)&addr, sizeof(addr)) < 0)
-        return -1;
-    listen(listen_sock, 1);
-
-    global_sock = accept(listen_sock, (struct sockaddr *)&addr, &addr_size);
-    close(listen_sock);
-
-    pthread_create(&recv_thread, NULL, receive_loop, NULL);
-    return 0;
-}
-
-int p2p_start_connector(const char *ip, int port, message_handler_t callback)
-{
-    struct sockaddr_in addr;
-
-    on_message_received = callback;
-    global_sock = socket(AF_INET, SOCK_STREAM, 0);
-
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(port);
-    inet_pton(AF_INET, ip, &addr.sin_addr);
-
-    if (connect(global_sock, (struct sockaddr *)&addr, sizeof(addr)) < 0)
-        return -1;
-
-    pthread_create(&recv_thread, NULL, receive_loop, NULL);
-    return 0;
-}
-
-int p2p_send(const char *message)
-{
-    if (global_sock == -1)
-        return -1;
-    return send(global_sock, message, strlen(message), 0);
-}
-
-void p2p_disconnect()
-{
-    if (global_sock != -1)
+    int opt = 1;
+    if (setsockopt(netmanager.socketfd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)))
     {
-        close(global_sock);
-        global_sock = -1;
+        perror("setsockopt");
+        exit(1);
     }
-    pthread_join(recv_thread, NULL);
+
+    memset(&netmanager.netaddr, 0, sizeof(netmanager.netaddr));
+
+    netmanager.netaddr.sin_family = AF_INET;
+    netmanager.netaddr.sin_addr.s_addr = htonl(INADDR_ANY);
+    netmanager.netaddr.sin_port = htons(port);
+
+    if ((bind(netmanager.socketfd, (struct sockaddr *)&netmanager.netaddr, sizeof(netmanager.netaddr))) != 0)
+    {
+        perror("socket bind failed");
+        exit(1);
+    }
+
+    if ((listen(netmanager.socketfd, 5)) != 0)
+    {
+        perror("Listen failed");
+        exit(1);
+    }
+
+    return netmanager;
+}
+
+Network init_connector(char *host, int port)
+{
+    Network netmanager;
+    netmanager.socketfd = socket(AF_INET, SOCK_STREAM, 0);
+
+    if (netmanager.socketfd == -1)
+    {
+        perror("Socket creation failed");
+        exit(1);
+    }
+
+    memset(&netmanager.netaddr, 0, sizeof(netmanager.netaddr));
+    netmanager.netaddr.sin_family = AF_INET;
+    netmanager.netaddr.sin_port = htons(port);
+
+    // Convert string IP to binary form using inet_pton
+    if (inet_pton(AF_INET, host, &netmanager.netaddr.sin_addr) <= 0)
+    {
+        perror("Invalid address/ Address not supported");
+        exit(1);
+    }
+
+    if (connect(netmanager.socketfd, (struct sockaddr *)&netmanager.netaddr, sizeof(netmanager.netaddr)) != 0)
+    {
+        perror("Connection to remote host failed");
+        exit(1);
+    }
+
+    return netmanager;
 }

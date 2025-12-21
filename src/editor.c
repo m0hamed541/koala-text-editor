@@ -10,6 +10,16 @@
 
 #define CTRL_KEY(k) ((k) & 0x1f)
 
+void editor_set_connection_info(Editor *E, const char *info)
+{
+	if (E->connection_info)
+		free(E->connection_info);
+	if (info)
+		E->connection_info = strdup(info);
+	else
+		E->connection_info = NULL;
+}
+
 // TERMINAL CONFIGURATION
 
 void disable_raw_mode(Editor *E)
@@ -77,6 +87,8 @@ void editor_free(Editor *E)
 	}
 	free(E->file_info.chars);
 	free(E->command_line.chars);
+	if (E->connection_info)
+		free(E->connection_info);
 }
 
 // TEXT EDITING
@@ -166,7 +178,7 @@ void read_file(Editor *E, const char *filename)
 
 void editor_open(Editor *E)
 {
-	if (E->file_info.chars != NULL && strcmp(E->file_info.chars, "[No Name]") != 0)
+	if (E->file_info.chars != NULL && strcmp(E->file_info.chars, "[No Name]") != 0 && strcmp(E->file_info.chars, "[Remote Session]") != 0)
 	{
 		read_file(E, E->file_info.chars);
 	}
@@ -327,8 +339,6 @@ void editor_process_keypress(Editor *E)
 			}
 		}
 		break;
-
-		break;
 	}
 }
 
@@ -347,28 +357,93 @@ void draw_prompt_line(Editor *E)
 	write(STDOUT_FILENO, mode_str, mode_len);
 }
 
+void draw_status_bar(Editor *E)
+{
+
+	write(STDOUT_FILENO, "\x1b[7m", 4);
+
+	char status[80];
+	char rstatus[80];
+
+	int len = snprintf(status, sizeof(status), "%.20s - %d lines %s",
+					   E->file_info.chars ? E->file_info.chars : "[No Name]",
+					   E->numrows,
+					   E->mode == INSERT_MODE ? "(Modified)" : ""); // Optional dirty flag logic
+
+	const char *net_str = "";
+	if (E->network_status == CONNECTED)
+		net_str = "CONNECTED";
+	else if (E->network_status == LISTENING)
+		net_str = "LISTENING";
+	else if (E->network_status == CONNECTING)
+		net_str = "CONNECTING";
+	else
+		net_str = "OFFLINE";
+
+	int rlen = snprintf(rstatus, sizeof(rstatus), "Ln %d/%d, Col %d | %s",
+						E->cy + 1, E->numrows, E->cx + 1, net_str);
+
+	if (len > E->screencols)
+		len = E->screencols;
+	write(STDOUT_FILENO, status, len);
+
+	while (len < E->screencols)
+	{
+		if (E->screencols - len == rlen)
+		{
+			write(STDOUT_FILENO, rstatus, rlen);
+			break;
+		}
+		else
+		{
+			write(STDOUT_FILENO, " ", 1);
+			len++;
+		}
+	}
+
+	write(STDOUT_FILENO, "\x1b[m", 3);
+	write(STDOUT_FILENO, "\r\n", 2);
+
+	if (E->network_status == CONNECTED && E->connection_info)
+	{
+		write(STDOUT_FILENO, "\x1b[K", 3); // Clear line
+		write(STDOUT_FILENO, "Remote: ", 8);
+		write(STDOUT_FILENO, E->connection_info, strlen(E->connection_info));
+		write(STDOUT_FILENO, "\r\n", 2);
+	}
+}
+
 void editor_draw_rows(Editor *E)
 {
 	erow *row = E->row;
-	for (int y = 0; y < E->screenrows - 2; y++)
+
+	int status_lines = (E->network_status == CONNECTED && E->connection_info) ? 2 : 1;
+	int draw_limit = E->screenrows - status_lines - 1; // -1 for prompt line
+
+	for (int y = 0; y < draw_limit; y++)
 	{
+		// ... (standard drawing logic remains the same)
+		write(STDOUT_FILENO, "\r", 1);
+
 		if (row)
 		{
 			int len = row->size > E->screencols ? E->screencols : row->size;
 			write(STDOUT_FILENO, row->chars, len);
+			write(STDOUT_FILENO, "\x1b[K", 3);
 			row = row->next;
 		}
 		else
 		{
 			write(STDOUT_FILENO, "~", 1);
+			write(STDOUT_FILENO, "\x1b[K", 3);
 		}
-		write(STDOUT_FILENO, "\x1b[K\r\n", 5);
+		write(STDOUT_FILENO, "\r\n", 2);
 	}
-	write(STDOUT_FILENO, E->file_info.chars, E->file_info.size);
-	write(STDOUT_FILENO, "\r\n\x1b[K", 5);
+
+	draw_status_bar(E);
+
 	draw_prompt_line(E);
 }
-
 void editor_refresh_screen(Editor *E)
 {
 	char buf[32];
@@ -386,6 +461,8 @@ void editor_init(Editor *E)
 	E->row = NULL;
 	E->numrows = 0;
 	E->mode = RAW_MODE;
+	E->network_status = DISCONNECTED;
+	E->connection_info = NULL;
 
 	pthread_mutex_init(&E->lock, NULL);
 	if (get_window_size(&E->screenrows, &E->screencols) == -1)

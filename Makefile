@@ -15,7 +15,10 @@ TEST_OT_TARGET = $(BUILD_DIR)/test_ot
 
 all:
 	@mkdir -p $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(MAIN_SRC) $(EDITOR_SRC) -o $(TARGET) $(LDFLAGS)
+	$(CC) $(CFLAGS) $(MAIN_SRC) $(EDITOR_SRC) $(NETWORK_SRC) -o $(TARGET) $(LDFLAGS)
+
+clean:
+	rm -rf $(BUILD_DIR)
 
 run:
 	./$(BUILD_DIR)/koala
