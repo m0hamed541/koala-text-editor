@@ -37,9 +37,12 @@ typedef struct Network
 {
     int socketfd;
     struct sockaddr_in netaddr;
+    size_t BUF_SIZE;
 } Network;
 
 Network init_host(int port);
 Network init_connector(char *host, int port);
+void *network_recv_thread(void *arg);
+void *network_send_thread(void *arg);
 
 #endif

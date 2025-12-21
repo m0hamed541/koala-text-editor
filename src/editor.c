@@ -10,6 +10,35 @@
 
 #define CTRL_KEY(k) ((k) & 0x1f)
 
+void editor_queue_event(Editor *E, char type, const char *data)
+{
+    if (E->network_status != CONNECTED) return;
+
+    OutgoingMsg *msg = malloc(sizeof(OutgoingMsg));
+    
+    // Format: Type + Data + Null terminator
+    int data_len = data ? strlen(data) : 0;
+    msg->data = malloc(data_len + 2); 
+    msg->data[0] = type;
+    if (data) {
+        memcpy(msg->data + 1, data, data_len);
+    }
+    msg->data[data_len + 1] = '\0';
+    
+    msg->next = NULL;
+
+    if (E->out_tail)
+    {
+        E->out_tail->next = msg;
+        E->out_tail = msg;
+    }
+    else
+    {
+        E->out_head = E->out_tail = msg;
+    }
+    pthread_cond_signal(&E->out_cond);
+}
+
 void editor_set_connection_info(Editor *E, const char *info)
 {
 	if (E->connection_info)
@@ -132,6 +161,51 @@ void editor_insert_newline(Editor *E, int line, int pos)
 	E->numrows++;
 }
 
+void editor_backspace(Editor *E)
+{
+	erow *row = E->row;
+	for (int i = 0; i < E->cy && row; i++)
+		row = row->next;
+
+	if (E->cx > 0)
+	{
+		if (row && E->cx <= row->size)
+		{
+			memmove(&row->chars[E->cx - 1], &row->chars[E->cx], row->size - E->cx + 1);
+			row->size--;
+			E->cx--;
+		}
+	}
+	else if (E->cy > 0)
+	{
+		erow *prev = E->row;
+		for (int i = 0; i < E->cy - 1 && prev; i++)
+			prev = prev->next;
+
+		if (prev && row)
+		{
+			E->cx = prev->size;
+
+			int new_size = prev->size + row->size;
+			char *new_chars = realloc(prev->chars, new_size + 1);
+			if (new_chars)
+			{
+				prev->chars = new_chars;
+				memcpy(&prev->chars[prev->size], row->chars, row->size);
+				prev->chars[new_size] = '\0';
+				prev->size = new_size;
+
+				prev->next = row->next;
+				free(row->chars);
+				free(row);
+
+				E->cy--;
+				E->numrows--;
+			}
+		}
+	}
+}
+
 void read_file(Editor *E, const char *filename)
 {
 	FILE *file = fopen(filename, "r");
@@ -252,56 +326,20 @@ void editor_process_keypress(Editor *E)
 		if (c == '\r' || c == '\n')
 		{
 			editor_insert_newline(E, E->cy, E->cx);
+            editor_queue_event(E, EVENT_NEWLINE, NULL);
 			E->cy++;
 			E->cx = 0;
 		}
 		else if (c == 127)
 		{
-			erow *row = E->row;
-			for (int i = 0; i < E->cy && row; i++)
-				row = row->next;
-
-			if (E->cx > 0)
-			{
-				if (row && E->cx <= row->size)
-				{
-					memmove(&row->chars[E->cx - 1], &row->chars[E->cx], row->size - E->cx + 1);
-					row->size--;
-					E->cx--;
-				}
-			}
-			else if (E->cy > 0)
-			{
-				erow *prev = E->row;
-				for (int i = 0; i < E->cy - 1 && prev; i++)
-					prev = prev->next;
-
-				if (prev && row)
-				{
-					E->cx = prev->size;
-
-					int new_size = prev->size + row->size;
-					char *new_chars = realloc(prev->chars, new_size + 1);
-					if (new_chars)
-					{
-						prev->chars = new_chars;
-						memcpy(&prev->chars[prev->size], row->chars, row->size);
-						prev->chars[new_size] = '\0';
-						prev->size = new_size;
-
-						prev->next = row->next;
-						free(row->chars);
-						free(row);
-
-						E->cy--;
-						E->numrows--;
-					}
-				}
-			}
+            editor_backspace(E);
+            editor_queue_event(E, EVENT_DELETE, NULL);
 		}
 		else if (isprint(c))
 		{
 			editor_insert_char(E, c, E->cy, E->cx);
+            char s[2] = {c, '\0'};
+            editor_queue_event(E, EVENT_INSERT, s);
 			E->cx++;
 		}
 		break;
@@ -368,7 +406,7 @@ void draw_status_bar(Editor *E)
 	int len = snprintf(status, sizeof(status), "%.20s - %d lines %s",
 					   E->file_info.chars ? E->file_info.chars : "[No Name]",
 					   E->numrows,
-					   E->mode == INSERT_MODE ? "(Modified)" : ""); // Optional dirty flag logic
+					   E->mode == INSERT_MODE ? "(Modified)" : "");
 
 	const char *net_str = "";
 	if (E->network_status == CONNECTED)
@@ -422,7 +460,6 @@ void editor_draw_rows(Editor *E)
 
 	for (int y = 0; y < draw_limit; y++)
 	{
-		// ... (standard drawing logic remains the same)
 		write(STDOUT_FILENO, "\r", 1);
 
 		if (row)

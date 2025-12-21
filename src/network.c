@@ -1,6 +1,7 @@
 
 
 #include "network.h"
+#include "editor.h"
 #include <strings.h>
 #include <arpa/inet.h>
 #include <errno.h>
@@ -75,3 +76,48 @@ Network init_connector(char *host, int port)
 
     return netmanager;
 }
+void *network_recv_thread(void *arg)
+{
+    Editor *ed = arg;
+    char buffer[1024];
+
+    while (1)
+    {
+        ssize_t n = recv(ed->network.socketfd, buffer, sizeof(buffer) - 1, 0);
+        if (n <= 0)
+            break;
+
+        buffer[n] = '\0';
+        handle_remote_update(buffer);
+    }
+
+    close(ed->network.socketfd);
+    return NULL;
+}
+
+
+void *network_send_thread(void *arg)
+{
+    Editor *ed = arg;
+
+    while (1)
+    {
+        pthread_mutex_lock(&ed->lock);
+
+        while (!ed->out_head)
+            pthread_cond_wait(&ed->out_cond, &ed->lock);
+
+        OutgoingMsg *msg = ed->out_head;
+        ed->out_head = msg->next;
+        if (!ed->out_head)
+            ed->out_tail = NULL;
+
+        pthread_mutex_unlock(&ed->lock);
+
+        send(ed->network.socketfd, msg->data, strlen(msg->data), 0);
+
+        free(msg->data);
+        free(msg);
+    }
+}
+

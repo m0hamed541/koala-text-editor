@@ -5,6 +5,14 @@
 #include <pthread.h>
 #include "network.h"
 
+// Event Protocol
+#define EVENT_FILE 'F'
+#define EVENT_INSERT 'I'
+#define EVENT_DELETE 'D'
+#define EVENT_NEWLINE 'N'
+
+
+
 typedef struct erow_node
 {
     int size;
@@ -25,6 +33,12 @@ typedef enum prompt
     QUIT
 } prompt;
 
+typedef struct OutgoingMsg
+{
+    char *data;
+    struct OutgoingMsg *next;
+} OutgoingMsg;
+
 typedef struct Editor
 {
     editorMode mode;
@@ -35,11 +49,19 @@ typedef struct Editor
     erow *row;
     struct termios orig_termios;
     erow file_info;
+
     erow command_line;
     networkStatus network_status;
     char *connection_info;
 
+    Network network;
+
+    OutgoingMsg *out_head;
+    OutgoingMsg *out_tail;
+
     pthread_mutex_t lock;
+    pthread_cond_t out_cond;
+
 } Editor;
 
 // Core Lifecycle
@@ -49,6 +71,9 @@ void enable_raw_mode(Editor *E);
 void disable_raw_mode(Editor *E);
 void editor_free(Editor *E);
 void editor_set_connection_info(Editor *E, const char *info);
+void editor_backspace(Editor *E);
+void editor_queue_event(Editor *E, char type, const char *data);
+void handle_remote_update(const char *message);
 
 // Screen and Input
 void editor_refresh_screen(Editor *E);

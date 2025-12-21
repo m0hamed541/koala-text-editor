@@ -58,19 +58,38 @@ void update_connection_info(int sockfd)
 
 void handle_remote_update(const char *message)
 {
-    if (!global_editor_ptr)
+    if (!global_editor_ptr || !message)
         return;
 
     pthread_mutex_lock(&global_editor_ptr->lock);
 
-    for (int i = 0; message[i] != '\0'; i++)
+    char type = message[0];
+    const char *data = message + 1;
+
+    switch (type)
     {
-        if (message[i] >= 32 || message[i] == '\n' || message[i] == '\t')
+    case EVENT_INSERT:
+        for (int i = 0; data[i] != '\0'; i++)
         {
-            editor_insert_char(global_editor_ptr, message[i], global_editor_ptr->cy, global_editor_ptr->cx);
+            editor_insert_char(global_editor_ptr, data[i], global_editor_ptr->cy, global_editor_ptr->cx);
             global_editor_ptr->cx++;
         }
+        break;
+    case EVENT_DELETE:
+        editor_backspace(global_editor_ptr);
+        break;
+    case EVENT_NEWLINE:
+        editor_insert_newline(global_editor_ptr, global_editor_ptr->cy, global_editor_ptr->cx);
+        global_editor_ptr->cy++;
+        global_editor_ptr->cx = 0;
+        break;
+    case EVENT_FILE:
+        editor_set_connection_info(global_editor_ptr, data);
+        if (global_editor_ptr->file_info.chars) free(global_editor_ptr->file_info.chars);
+        global_editor_ptr->file_info.chars = strdup(data);
+        break;
     }
+   
     editor_refresh_screen(global_editor_ptr);
 
     pthread_mutex_unlock(&global_editor_ptr->lock);
@@ -147,57 +166,46 @@ void parse_args(int argc, char **argv, EditorArgs *args)
 
 void *network_handler(void *arg)
 {
-    EditorArgs *args = (EditorArgs *)arg;
+    EditorArgs *args = arg;
+    Editor *ed = global_editor_ptr;
     int conn_fd = -1;
-    char buffer[1024];
 
     if (args->mode == MODE_LISTENER)
     {
         Network host_net = init_host(args->port);
-
         struct sockaddr_in client_addr;
-        socklen_t client_len = sizeof(client_addr);
+        socklen_t len = sizeof(client_addr);
 
-        global_editor_ptr->network_status = LISTENING;
-
-        conn_fd = accept(host_net.socketfd, (struct sockaddr *)&client_addr, &client_len);
-        if (conn_fd < 0)
-        {
-            exit(1);
-        }
-        else
-        {
-            pthread_mutex_lock(&global_editor_ptr->lock);
-            global_editor_ptr->network_status = CONNECTED;
-            update_connection_info(conn_fd);
-            editor_refresh_screen(global_editor_ptr);
-            pthread_mutex_unlock(&global_editor_ptr->lock);
-        }
+        ed->network_status = LISTENING;
+        conn_fd = accept(host_net.socketfd,
+                         (struct sockaddr *)&client_addr, &len);
     }
-    else if (args->mode == MODE_CONNECTOR)
+    else
     {
         conn_fd = args->initial_socket;
     }
 
-    if (conn_fd != -1)
-    {
-        pthread_mutex_lock(&global_editor_ptr->lock);
-        global_editor_ptr->network_status = CONNECTED;
-        update_connection_info(conn_fd);
-        editor_refresh_screen(global_editor_ptr);
-        pthread_mutex_unlock(&global_editor_ptr->lock);
-        while (1)
-        {
-            ssize_t n = read(conn_fd, buffer, sizeof(buffer) - 1);
-            if (n <= 0)
-                break; // Disconnected or error
+    if (conn_fd < 0)
+        pthread_exit(NULL);
 
-            buffer[n] = '\0';
-            handle_remote_update(buffer);
-        }
-        close(conn_fd);
-    }
+    pthread_mutex_lock(&ed->lock);
+    ed->network.socketfd = conn_fd;
+    ed->network_status = CONNECTED;
+    update_connection_info(conn_fd);
+    editor_refresh_screen(ed);
+    pthread_mutex_unlock(&ed->lock);
 
+    // Send filename immediately after connection
+    pthread_mutex_lock(&ed->lock);
+    editor_queue_event(ed, EVENT_FILE, ed->file_info.chars);
+    pthread_mutex_unlock(&ed->lock);
+
+    pthread_t recv_t, send_t;
+    pthread_create(&recv_t, NULL, network_recv_thread, ed);
+    pthread_create(&send_t, NULL, network_send_thread, ed);
+
+    pthread_join(recv_t, NULL);
+    pthread_join(send_t, NULL);
     return NULL;
 }
 
@@ -205,6 +213,11 @@ int main(int argc, char **argv)
 {
     Editor editor;
     global_editor_ptr = &editor;
+
+    pthread_mutex_init(&editor.lock, NULL);
+    pthread_cond_init(&editor.out_cond, NULL);
+
+    editor.out_head = editor.out_tail = NULL;
 
     EditorArgs args;
     parse_args(argc, argv, &args);
@@ -271,7 +284,7 @@ int main(int argc, char **argv)
             if (FD_ISSET(STDIN_FILENO, &fds))
             {
                 pthread_mutex_lock(&editor.lock);
-                editor_process_keypress(&editor); // this will do the read() without blocking
+                editor_process_keypress(&editor);
                 pthread_mutex_unlock(&editor.lock);
             }
         }
