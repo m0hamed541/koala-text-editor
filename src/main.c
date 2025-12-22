@@ -56,33 +56,46 @@ void update_connection_info(int sockfd)
     editor_set_connection_info(global_editor_ptr, buf);
 }
 
+
+
 void handle_remote_update(const char *message)
 {
     if (!global_editor_ptr || !message)
         return;
 
-    pthread_mutex_lock(&global_editor_ptr->lock);
+    int r_cx = 0, r_cy = 0;
+    char type = 0;
+    int offset = 0;
 
-    char type = message[0];
-    const char *data = message + 1;
+    if (sscanf(message, "%c %d %d%n", &type, &r_cx, &r_cy, &offset) < 3) {
+        return;
+    }
+
+    const char *data = message + offset;
+    if (*data == ' ') data++; 
+
+    pthread_mutex_lock(&global_editor_ptr->lock);
 
     switch (type)
     {
     case EVENT_INSERT:
         for (int i = 0; data[i] != '\0'; i++)
         {
-            editor_insert_char(global_editor_ptr, data[i], global_editor_ptr->cy, global_editor_ptr->cx);
-            global_editor_ptr->cx++;
+            editor_insert_char(global_editor_ptr, data[i], r_cy, r_cx);
+            r_cx++;
         }
         break;
+
     case EVENT_DELETE:
+        global_editor_ptr->cx = r_cx;
+        global_editor_ptr->cy = r_cy;
         editor_backspace(global_editor_ptr);
         break;
+
     case EVENT_NEWLINE:
-        editor_insert_newline(global_editor_ptr, global_editor_ptr->cy, global_editor_ptr->cx);
-        global_editor_ptr->cy++;
-        global_editor_ptr->cx = 0;
+        editor_insert_newline(global_editor_ptr, r_cy, r_cx);
         break;
+
     case EVENT_FILE:
         editor_set_connection_info(global_editor_ptr, data);
         if (global_editor_ptr->file_info.chars) free(global_editor_ptr->file_info.chars);
@@ -91,7 +104,6 @@ void handle_remote_update(const char *message)
     }
    
     editor_refresh_screen(global_editor_ptr);
-
     pthread_mutex_unlock(&global_editor_ptr->lock);
 }
 

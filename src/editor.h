@@ -11,8 +11,6 @@
 #define EVENT_DELETE 'D'
 #define EVENT_NEWLINE 'N'
 
-
-
 typedef struct erow_node
 {
     int size;
@@ -36,6 +34,7 @@ typedef enum prompt
 typedef struct OutgoingMsg
 {
     char *data;
+    int cx, cy;
     struct OutgoingMsg *next;
 } OutgoingMsg;
 
@@ -72,6 +71,7 @@ void disable_raw_mode(Editor *E);
 void editor_free(Editor *E);
 void editor_set_connection_info(Editor *E, const char *info);
 void editor_backspace(Editor *E);
+
 void editor_queue_event(Editor *E, char type, const char *data);
 void handle_remote_update(const char *message);
 

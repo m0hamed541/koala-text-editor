@@ -99,6 +99,7 @@ void *network_recv_thread(void *arg)
 void *network_send_thread(void *arg)
 {
     Editor *ed = arg;
+    char packet[2048];
 
     while (1)
     {
@@ -114,9 +115,19 @@ void *network_send_thread(void *arg)
 
         pthread_mutex_unlock(&ed->lock);
 
-        send(ed->network.socketfd, msg->data, strlen(msg->data), 0);
+        // Format: "%c %d %d %s" -> Type Space CX Space CY Space Data
+        // msg->data[0] is the type, msg->data + 1 is the actual string content
+        if (msg->data) {
+            snprintf(packet, sizeof(packet), "%c %d %d %s", 
+                     msg->data[0], 
+                     msg->cx, 
+                     msg->cy, 
+                     msg->data + 1);
 
-        free(msg->data);
+            send(ed->network.socketfd, packet, strlen(packet), 0);
+            
+            free(msg->data);
+        }
         free(msg);
     }
 }

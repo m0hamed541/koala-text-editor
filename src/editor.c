@@ -10,34 +10,44 @@
 
 #define CTRL_KEY(k) ((k) & 0x1f)
 
+
+// last edit : add cx and cy and store tm in the struct
 void editor_queue_event(Editor *E, char type, const char *data)
 {
     if (E->network_status != CONNECTED) return;
 
     OutgoingMsg *msg = malloc(sizeof(OutgoingMsg));
+    if (!msg) return;
+
+    msg->cx = E->cx;
+    msg->cy = E->cy;
     
-    // Format: Type + Data + Null terminator
+    // payload: type + data + null terminator
     int data_len = data ? strlen(data) : 0;
     msg->data = malloc(data_len + 2); 
-    msg->data[0] = type;
-    if (data) {
-        memcpy(msg->data + 1, data, data_len);
+    
+    if (msg->data) {
+        msg->data[0] = type;
+        if (data) {
+            memcpy(msg->data + 1, data, data_len);
+        }
+        msg->data[data_len + 1] = '\0';
     }
-    msg->data[data_len + 1] = '\0';
     
     msg->next = NULL;
 
-    if (E->out_tail)
-    {
+    if (E->out_tail) {
         E->out_tail->next = msg;
         E->out_tail = msg;
-    }
-    else
-    {
+    } else {
         E->out_head = E->out_tail = msg;
     }
     pthread_cond_signal(&E->out_cond);
 }
+
+
+
+
 
 void editor_set_connection_info(Editor *E, const char *info)
 {
